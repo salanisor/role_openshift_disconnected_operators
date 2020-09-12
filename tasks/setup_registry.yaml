@@ -1,0 +1,129 @@
+---
+# tasks file for configure-local-registry
+
+- name: "Create registry directories"
+  file:
+    path: /opt/registry/{{item}}
+    state: directory
+  with_items:
+    - auth
+    - certs
+    - data
+  tags:
+  - registry
+
+- name: "Generate an OpenSSL private key with the default values (4096 bits, RSA)"
+  openssl_privatekey:
+    path: /opt/registry/certs/domain.pem
+  tags:
+  - registry
+
+- name: "Generate an OpenSSL Certificate Signing Request"
+  openssl_csr:
+    path: /opt/registry/certs/domain.csr
+    privatekey_path: /opt/registry/certs/domain.pem
+    basic_constraints:
+      - CA:TRUE
+    basic_constraints_critical: yes
+    common_name: "{{registry_catalog}}"
+  tags:
+  - registry
+
+- name: "Generate a Self Signed OpenSSL certificate"
+  openssl_certificate:
+    path: /opt/registry/certs/domain.crt
+    privatekey_path: /opt/registry/certs/domain.pem
+    csr_path: /opt/registry/certs/domain.csr
+    provider: selfsigned
+  tags:
+  - registry
+
+- name: "Copy Self Signed OpenSSL certificate"
+  copy:
+    src: /opt/registry/certs/domain.crt
+    dest: /etc/pki/ca-trust/source/anchors/domain.crt
+    remote_src: yes
+    force: yes
+  become: yes
+  tags:
+  - registry
+
+- name: "Add the Self Signed OpenSSL certificate to your list of trusted certificates"
+  shell: |
+    update-ca-trust || true
+    cat /etc/pki/tls/certs/ca-bundle.trust.crt | grep {{registry_catalog}} | wc -l
+  become: yes
+  register: cert_trust
+  until: cert_trust.stdout|int == 1
+  retries: 3
+  delay: 10
+  tags:
+  - registry
+
+- name: "Create the user and password for local registry"
+  shell: htpasswd -bBc /opt/registry/auth/htpasswd admin admin
+  args:
+    creates: /opt/registry/auth/htpasswd
+  tags:
+  - registry
+
+- name: "Generate local-registry service file"
+  template:
+    src: local-registry.service.j2
+    dest: /etc/systemd/system/local-registry.service
+    mode: 0655
+  become: yes
+  tags:
+  - registry
+
+- name: "Start local-registry"
+  systemd:
+    name: local-registry
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  become: yes
+  tags:
+  - registry
+
+- name: "Ensure registry pod is up"
+  shell: podman ps | grep local-registry
+  become: yes
+  register: pod_state
+  until: pod_state.stdout != ""
+  retries: 4
+  delay: 15
+  tags:
+  - registry
+
+- name: "Allow traffic at local registry port"
+  firewalld:
+    port: 5000/tcp
+    permanent: yes
+    zone: "{{ item }}"
+    state: enabled
+  become: yes
+  with_items:
+  - internal
+  - public
+  tags:
+  - registry
+
+- name: "Restarting regitry services"
+  service:
+    name: "{{item}}"
+    state: restarted
+  with_items:
+    - "{{registry_services}}"
+  become: yes
+  tags:
+  - registry
+
+- name: "Get local registry pod"
+  shell: curl -u admin:admin -k https://{{registry_catalog}}:5000/v2/_catalog | grep repositories
+  register: pod_state
+  until: pod_state.stdout != ""
+  retries: 3
+  delay: 30
+  tags:
+  - registry

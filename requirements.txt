@@ -1,0 +1,10 @@
+ansible
+jmespath
+pyyaml
+jinja2
+library
+pathlib
+passlib
+apypie
+ipaddress
+ansible-lint

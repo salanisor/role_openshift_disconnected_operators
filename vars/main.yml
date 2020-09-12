@@ -1,0 +1,32 @@
+---
+# vars file for role_openshift_disconnected_operators
+publish: "/tmp/publish"
+image_count: ''
+registry_catalog: ''
+catalog_version: "1.0.0"
+redhat_operators_image_name: 'redhat-operators'
+proxy_env:
+  https_proxy: ''
+  no_proxy: "{{registry_catalog}}"
+  image_url: "{{registry_catalog}}:5000/{{redhat_operators_image_name}}:{{catalog_version}}"
+redhat_operators_packages_url: 'https://quay.io/cnr/api/v1/packages?namespace=redhat-operators'
+quay_rh_base_url: 'https://quay.io/cnr/api/v1/packages/'
+operator_image_list:
+  - "redhat-operators/jaeger-product"
+  - "redhat-operators/servicemeshoperator"
+  - "redhat-operators/cluster-logging"
+  - "redhat-operators/elasticsearch-operator"
+  - "redhat-operators/kiali-ossm"
+  - "redhat-operators/mesh-project"
+setup_registry:
+  deploy: false
+  autosync_registry: false
+  registry_image: 'docker.io/library/registry:2'
+registry:
+  - podman
+  - httpd-tools
+  - jq
+registry_services:
+  - named
+  - firewalld
+  - local-registry

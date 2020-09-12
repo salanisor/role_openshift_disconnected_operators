@@ -1,0 +1,21 @@
+---
+- name: "Gather source registries"
+  set_fact:
+    registries: "{{registries|default([])|unique}} + [ '{{item.split('/')[0]}}' ]"
+  vars:
+    registry: "{{lookup('file', '{{content_root_dir}}/images.txt').splitlines()|list}}"
+  loop: "{{registry}}"
+- name: "Create image content source policy file"
+  template:
+    src: image_content_source.yaml.j2
+    dest: "{{publish}}/image_content_source.yaml"
+- name: "Create mapping image file"
+  template:
+    src: mapping.txt.j2
+    dest: "{{publish}}/mapping.txt"
+  vars:
+    registry: "{{lookup('file', '{{content_root_dir}}/images.txt').splitlines()|list}}"
+- name: "Create catalog source file"
+  template:
+    src: rh_catalog_source.yaml.j2
+    dest: "{{publish}}/catalog_source.yaml"

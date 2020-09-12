@@ -1,0 +1,13 @@
+#jinja2: trim_blocks: True
+{# file: mappings.txt.j2 #}
+{% set registry_ = [] %}
+{%- for image in registry -%}
+{%- if image in registry_ -%}
+{% else %}
+{% set namespace = image.split('/') %}
+{% set imagestr = image.split('@')[0] %}
+{% set imagename = imagestr.split('/')[-1] %}
+{{registry_.append(image)}}
+{{image}}={{registry_catalog}}/{{namespace[1]}}/{{imagename}}
+{%- endif -%}
+{%- endfor -%}

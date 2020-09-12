@@ -1,0 +1,5 @@
+---
+- name: "clean_up"
+  file:
+    path: "{{content_root_dir}}/pull-secret.json"
+    state: absent

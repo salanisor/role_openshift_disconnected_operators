@@ -1,0 +1,302 @@
+---
+```
+# vars file for role_openshift_disconnected_operators
+publish: "/tmp/publish" # Directory where olm-icsp.yaml, mapping.txt, contentSource.yaml will be written.
+registry_catalog: 'registry.example.domain.com' # Local registry where to mirror Operator images.
+catalog_version: "1.0.0" # Arbitrary version number to tag your catalogue image. Unless you are interested in doing AB testing, keep the release version for all subsequent runs.
+redhat_operators_image_name: 'redhat-operators' # Operator catalog image.
+proxy_env:
+  https_proxy: 'http://proxy.example.domain.com:8080' # Set HTTP Proxy if required.
+  no_proxy: "{{registry_catalog}}" # Bypassing the local registry from the HTTP Proxy.
+# The URL of the destination registry where the operator images will be mirrored to.
+# The URL of the destination registry where the operator catalogue image will be published to.
+image_url: "{{registry_catalog}}:5000/{{redhat_operators_image_name}}:{{catalog_version}}"
+redhat_operators_packages_url: 'https://quay.io/cnr/api/v1/packages?namespace=redhat-operators' # Service catalog URL where we reterieve operator metadata.
+quay_rh_base_url: 'https://quay.io/cnr/api/v1/packages/' # URL we're pulling the Operator package(s) from.
+operator_image_list: # Example list of operators to mirror.
+  - "redhat-operators/jaeger-product"
+  - "redhat-operators/servicemeshoperator"
+  - "redhat-operators/cluster-logging"
+  - "redhat-operators/elasticsearch-operator"
+  - "redhat-operators/kiali-ossm"
+  - "redhat-operators/mesh-project"
+setup_registry: # Enable the deployment of a local systemd Docker registry certificate and password protected.
+  deploy: false
+  autosync_registry: false
+  registry_image: 'docker.io/library/registry:2'
+registry:
+  - podman
+  - httpd-tools
+  - jq
+registry_services:
+  - firewalld
+  - local-registry
+
+```
+
+**playbook example**
+
+Run playbook: `ansible-playbook -vvv pb_ocp_disconnected_operators.yaml --ask-vault-pass`
+
+```
+- hosts: helper
+  gather_facts: true
+  pre_tasks:
+  - include_tasks: pre_tasks.yaml
+  roles:
+  - role: role_openshift_disconnected_operators
+```
+
+= How to install operators in a disconnected environment.
+
+The following steps walk you through mirroring and configuration of offline operators.
+
+To streamline the deployment create or use an active account at redhat.com to be used as primary user to manage pulling images from Red Hat.
+
+This role assumes already established trust with your local mirror. To read more about operators in restricted environments, please see the [official-documentation] (https://docs.openshift.com/container-platform/4.5/operators/olm-restricted-networks.html)
+
+= Preparation
+
+* With your service account, log in to retrieve the pull secrets for quay.io and registry.redhat.io [Pull-secret-page](https://cloud.redhat.com/openshift/install/pull-secret)
+* Fill-out the variables file with your mirror registry URL, username, password and operators to mirror. `vars/main.yml`
+* Copy the secret obtained run it through `jq` json processor and save its output to the role's `files/pull-secret.json`
+* To complete the preparation, vault your `pull-secret.json`
+```
+ansible-vault encrypt files/pull-secret.json --ask-vault-pass
+```
+* Lastly, update the variables file or at execution time, pass in the registry user `reguser` & registry password `regpass` to your local mirror.
+
+= Deployment
+Running the role with the current operator_image_list as-is - will mirror all the necessary operator container images to install and deploy 1) Service Mesh 2) Logging stack (clusterlogging).
+
+* Apply the ImageContentSourcePolicy
+```
+oc apply -f /tmp/publish/image_content_source.yaml
+```
+
+* Create a CatalogSource object that references your catalog image.
+```
+oc apply -f /tmp/publish/catalog_source.yaml
+```
+
+* Verify the operator catalog pod to be running.
+```
+oc get pods -n openshift-marketplace
+```
+
+* Check the CatalogSource.
+```
+oc get catalogsource -n openshift-marketplace
+```
+
+* Lastly, check the PackageManifest.
+```
+oc get packagemanifest -n openshift-marketplace
+```
+
+= Deploy Service Mesh Operator and Service Mesh Control Place from the web console.
+Deploy the Service Mesh components from the web console following the [online-documentation](https://docs.openshift.com/container-platform/4.5/service_mesh/service_mesh_install/installing-ossm.html)
+
+Templates:
+  * non-secure production-elasticsearch ISCSI storage backed deployment.
+  * mTLS FIPS production-elasticsearch ISCSI storage backed deployment.
+
+**Non-Secure storage backed smcp**
+```
+apiVersion: maistra.io/v1
+kind: ServiceMeshControlPlane
+metadata:
+  name: basic-install
+spec:
+  istio:
+    global:
+      proxy:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+    gateways:
+      istio-egressgateway:
+        autoscaleEnabled: false
+      istio-ingressgateway:
+        autoscaleEnabled: false
+        ior_enabled: false
+    mixer:
+      policy:
+        autoscaleEnabled: false
+      telemetry:
+        autoscaleEnabled: false
+        resources:
+          requests:
+            cpu: 100m
+            memory: 1G
+          limits:
+            cpu: 500m
+            memory: 4G
+    pilot:
+      autoscaleEnabled: false
+      traceSampling: 100
+    kiali:
+      enabled: true
+    grafana:
+      enabled: true
+    tracing:
+      enabled: true
+      jaeger:
+        template: production-elasticsearch
+        elasticsearch:
+          nodeCount: 3
+          storage:
+            storageClassName: iscsi
+            size: "200G"
+          redundancyPolicy: "SingleRedundancy"
+          resources:
+            requests:
+              cpu: "1"
+              memory: "16Gi"
+            limits:
+              cpu: "1"
+              memory: "16Gi"
+```
+
+= FIPS work around enabled storage backed smcp
+
+```
+apiVersion: maistra.io/v1
+kind: ServiceMeshControlPlane
+metadata:
+  name: basic-install-fips
+spec:
+  istio:
+    global:
+      controlPlaneSecurityEnabled: true
+      mtls:
+        enabled: true
+      tls:
+        cipherSuites: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        ecdhCurves: CurveP256, CurveP384
+        maxProtocolVersion: TLSv1_2
+        minProtocolVersion: TLSv1_2
+      proxy:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+    gateways:
+      istio-egressgateway:
+        autoscaleEnabled: false
+      istio-ingressgateway:
+        autoscaleEnabled: false
+        ior_enabled: false
+    mixer:
+      policy:
+        autoscaleEnabled: false
+      telemetry:
+        autoscaleEnabled: false
+        resources:
+          requests:
+            cpu: 100m
+            memory: 1G
+          limits:
+            cpu: 500m
+            memory: 4G
+    pilot:
+      autoscaleEnabled: false
+      traceSampling: 100
+    kiali:
+      enabled: true
+    grafana:
+      enabled: true
+    tracing:
+      enabled: true
+      jaeger:
+        template: production-elasticsearch
+        elasticsearch:
+          nodeCount: 3
+          storage:
+            storageClassName: iscsi
+            size: "200G"
+          redundancyPolicy: "SingleRedundancy"
+          resources:
+            requests:
+              cpu: "1"
+              memory: "16Gi"
+            limits:
+              cpu: "1"
+              memory: "16Gi"
+```
+
+= Deploy ClusterLogging from the web console.
+To deploy ClusterLogging operator following the [online-documentation](https://docs.openshift.com/container-platform/4.5/logging/cluster-logging-deploying.html#cluster-logging-deploy-console_cluster-logging-deploying)
+
+
+```
+apiVersion: "logging.openshift.io/v1"
+kind: "ClusterLogging"
+metadata:
+  name: "instance"
+  namespace: "openshift-logging"
+spec:
+  ManagementState: "Managed"
+  logStore:
+    type: "elasticsearch"
+    retentionPolicy:
+      application:
+        maxage: 7d
+      infra:
+        maxage: 7d
+      audit:
+        maxage: 7d
+    elasticsearch:
+      nodeCount: 3
+      nodeSelector:
+          node-role.kubernetes.io/elasticsearch: ""
+      storage:
+        storageClassName: iscsi
+        size: "200G"
+      redundancyPolicy: "SingleRedundancy"
+      resources:
+        limits:
+          cpu: 1
+          memory: 16Gi
+        requests:
+          cpu: 1
+          memory: 16Gi
+  collection:
+    logs:
+      type: "fluentd"
+      fluentd:
+        resources:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 200m
+            memory: 1Gi
+  visualization:
+    type: "kibana"
+    kibana:
+      replicas: 1
+      resources:
+        limits:
+          cpu:
+          memory:
+        requests:
+          cpu: 200m
+          memory: 1G
+  curation:
+    type: "curator"
+    curator:
+      schedule: "30 3 * * *"
+      resources:
+        limits:
+          memory: 200Mi
+        requests:
+          cpu: 200m
+          memory: 200Mi
+```

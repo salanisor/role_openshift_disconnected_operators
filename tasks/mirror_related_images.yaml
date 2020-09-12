@@ -1,0 +1,16 @@
+---
+  # Mirror Images To Local Registry when _not_ in known_bad_images
+- name: "Mirror related images locally"
+  command: /usr/bin/skopeo copy --dest-tls-verify=false --authfile {{content_root_dir}}/pull-secret.json -a docker://{{item}} docker://{{registry_catalog}}:5000/{{item.split('/')[1]}}/{{item.split('/')[2]}}
+  environment: "{{proxy_env}}"
+  # Want to change with_lines to > vars: registry: "{{lookup('file', 'content_root_dir/images.txt').splitlines()|list}}"
+  with_lines:
+  - "cat {{content_root_dir}}/images.txt"
+  loop_control:
+    pause: 5
+  # Will need to test if *not in* is the proper way?
+  when: "item.split('/')[2] not in known_bad_images"
+  notify:
+  - "clean_up"
+  tags:
+  - mirror

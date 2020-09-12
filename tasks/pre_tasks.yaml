@@ -1,0 +1,33 @@
+---
+- name: "check if podman is installed RHEL 7"
+  block:
+  - shell: 'podman --version'
+    changed_when: false
+    register: podcmd
+    ignore_errors: yes
+  - shell: 'skopeo --version'
+    changed_when: false
+    register: skocmd
+    ignore_errors: yes
+  - fail:
+      msg: "Enable repository: rhel-7-server-extras-rpms/x86_64 to install skopeo & podman"
+    when: '("podman: command not found" in podcmd.stderr) or 
+           ("skopeo: command not found" in skocmd.stderr)'
+  when: (ansible_distribution == "RedHat") and
+        (ansible_distribution_major_version == "7")
+- name: "check if podman is installed CentOS 8"
+  block:
+  - shell: 'podman --version'
+    changed_when: false
+    register: podcmd
+    ignore_errors: yes
+  - shell: 'skopeo --version'
+    changed_when: false
+    register: skocmd
+    ignore_errors: yes
+  - fail:
+      msg: "Please install skopeo & podman from @System before continuing"
+    when: '("podman: command not found" in podcmd.stderr) or 
+           ("skopeo: command not found" in skocmd.stderr)'
+  when: (ansible_distribution == "CentOS") and
+        (ansible_distribution_major_version == "8")

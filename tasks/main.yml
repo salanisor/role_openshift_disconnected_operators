@@ -1,0 +1,89 @@
+---
+# tasks file for role_openshift_disconnected_operators
+- name: "create temporary dirs"
+  include_tasks: create_dirs_task.yaml
+- name: "download OLM Package File"
+  uri:
+    url: "{{redhat_operators_packages_url}}"
+    return_content: yes
+    validate_certs: no
+  register: content
+  environment: "{{proxy_env}}"
+- name: "Setup Local Registry"
+  block:
+  - name: "Install registry packages"
+    package:
+      name: "{{ registry }}"
+      state: present
+    become: yes
+  - name: "Setup Registry"
+    import_tasks: setup_registry.yaml
+  when: setup_registry.deploy
+  tags:
+  - registry
+- name: "extract White Listed Operators"
+  set_fact:
+    mod_package_file_data: "{{mod_package_file_data|default([])}} + {{content|json_query(query)}}"
+  loop: "{{ operator_image_list }}"
+  vars:
+    query: 'json[?name == (`{{item|to_json}}`)].{name: name, version: default}'
+# Download individual operator manifest
+- name: "download Manifest"
+  uri:
+    url: "{{quay_rh_base_url}}{{item.name}}/{{item.version}}"
+    return_content: yes
+    validate_certs: no
+  register: data
+  loop: "{{mod_package_file_data}}"
+  environment: "{{ proxy_env }}"
+# Get the operator digest & extract related images
+- name: "Downloading Manifests for white-listed operators..."
+  include_tasks: extract_tasks.yaml
+  with_items: "{{ data.results }}"
+  register: img
+- name: "Copy the pull secret"
+  copy:
+    src: pull-secret.json
+    dest: "{{content_root_dir}}"
+- name: "generate token for registry"
+  shell: echo -n "{{reguser}}:{{regpass}}" | base64 -w0
+  register: registry_creds
+- name: "add registry to pull-secret"
+  blockinfile:
+    backup: yes
+    block: |
+            "{{registry_catalog}}:5000": { 
+              "auth": "{{registry_creds.stdout}}", 
+              "email": "root@domain.com"
+            },
+    dest: '{{content_root_dir}}/pull-secret.json'
+    insertbefore: '"registry.redhat.io".+'
+    marker: ''
+- name: "Create Catalog Image And Push To Local Registry"
+  block:
+  - set_fact:
+          image_url: "{{registry_catalog}}:5000/{{redhat_operators_image_name}}:{{catalog_version}}"
+  - set_fact:
+      manifestPath: "{{manifest_root_dir}}"
+  - template:
+      src: Dockerfile.j2
+      dest: "{{content_root_dir}}/Dockerfile"
+  - name: build image
+    command: "/usr/bin/podman build --format docker -f {{content_root_dir}} -t {{image_url}}"
+    environment: "{{ proxy_env }}"
+  - name: "Push catalog image version"
+    command: "/usr/bin/podman push --tls-verify=false --authfile {{content_root_dir}}/pull-secret.json {{image_url}}"
+  tags:
+  - catalog
+# Mirror Images To Local Registry when *not* in known_bad_images
+- name: "include bad image vars"
+  include_vars:
+    file: known_bad_images.yaml
+  tags:
+  - mirror
+- name: "Mirror images to local registry"
+  include_tasks: mirror_related_images.yaml
+  tags:
+  - mirror
+- name: "Create Image Content Source Policy File"
+  include_tasks: create_image_content_source_policy.yaml

@@ -1,0 +1,8 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  gather_facts: true
+  pre_tasks:
+    - include_tasks: ./tasks/pre_tasks.yaml
+  roles:
+  - { role: role_openshift_disconnected_operators }

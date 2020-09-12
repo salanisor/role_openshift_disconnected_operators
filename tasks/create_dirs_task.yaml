@@ -1,0 +1,23 @@
+---
+- name: "create temporary manifest directory"
+  tempfile:
+    state: directory
+    suffix: manifest
+  register: man
+- name: "Set the manifest path"
+  set_fact:
+    manifest_root_dir: "{{man.path}}"
+  when: man.path is defined
+- name: "create temporary content directory"
+  tempfile:
+    state: directory
+    suffix: content
+  register: con
+- name: "Set the content path"
+  set_fact:
+    content_root_dir: "{{con.path}}"
+  when: con.path is defined
+- name: "Create publish directory"
+  file:
+    state: directory
+    path: "{{publish}}"

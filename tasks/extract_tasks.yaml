@@ -1,0 +1,29 @@
+---
+- name: "Downloading Manifests for white-listed operators..."
+  get_url:
+    url: "{{quay_rh_base_url}}{{item.item.name}}/blobs/sha256/{{item.json[0].content.digest}}"
+    dest: "{{content_root_dir}}/{{item.item.name.split('/')[1]}}.tar.gz"
+    validate_certs: no
+  environment: "{{ proxy_env }}"
+  tags:
+  - olm
+- name: "Extract package"
+  unarchive:
+    src: "{{content_root_dir}}/{{item.item.name.split('/')[1]}}.tar.gz"
+    dest: "{{manifest_root_dir}}/"
+  tags:
+  - olm
+- name: "Get Operator CsvYaml"
+  getopcsvyaml:
+    src: "{{manifest_root_dir}}"
+    dest: "{{content_root_dir}}"
+    operator_name: "{{item.item.name.split('/')[1]}}"
+  register: img
+  tags:
+  - olm
+- set_fact:
+    image_count: "{{images.split('\n')|length}}"
+  vars:
+    images: "{{lookup('file', '{{content_root_dir}}/images.txt')}}"
+  tags:
+  - olm

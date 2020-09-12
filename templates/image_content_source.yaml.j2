@@ -1,0 +1,18 @@
+#jinja2: trim_blocks: True
+{# file: image_content_source.yaml.j2 #}
+{% set registries_ = [] %}
+apiVersion: operator.openshift.io/v1alpha1
+kind: ImageContentSourcePolicy
+metadata:
+  name: olm-image-content-source
+spec:
+  repositoryDigestMirrors:
+{%- for registry in registries -%}
+{%- if registry in registries_ -%}
+{% else %}
+  {{registries_.append(registry)}}
+  - mirrors:
+    - {{registry_catalog}}
+    source: {{registry}}
+{%- endif -%}
+{%- endfor -%}
